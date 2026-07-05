@@ -71,6 +71,7 @@ Then:
 
 ## Current Phase
 
-**Phase: 3** — Database (PostgreSQL + Prisma).
+**Phase: 4** — Authentication (JWT login, register, role-based access control).
 
 > Update this line at the start of each new phase.
+

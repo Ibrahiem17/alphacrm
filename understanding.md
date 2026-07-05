@@ -1,461 +1,205 @@
 # AlphaCRM — Understanding the Codebase
 
-This document explains everything we have built so far: what it is, why it exists,
-how each file works, and how everything connects together. Read this whenever you
-feel lost or want to remind yourself of the big picture.
+## What is it?
+A full-stack CRM (Customer Relationship Management) app. Sales teams use it to track contacts (people they sell to) and deals (sales in progress). Built as a portfolio and learning project covering backend, database, frontend, and full DevOps deployment to AWS.
 
 ---
 
-## What Is AlphaCRM?
+## The Big Picture
 
-AlphaCRM is a Customer Relationship Management web application. A CRM is a tool
-that sales teams use to track their contacts (people they sell to), deals (sales
-in progress), and pipeline (the stages each deal moves through).
+```
+Browser (React frontend)          ← what the user sees, runs on port 5173
+       ↕ HTTP requests
+Express backend (Node.js)         ← business logic, security, port 3000
+       ↕ Prisma (JS → SQL translator)
+PostgreSQL database               ← permanent storage, port 5432 (in Docker)
+```
 
-We are building it from scratch as a portfolio and learning project. The finished
-product will be a full-stack application with a React frontend, a Node.js backend,
-a PostgreSQL database, and a deployment pipeline to AWS using Docker and Kubernetes.
+The browser can't be trusted with sensitive work — anyone can tamper with it. So password checking, data saving, and permission rules all live on the backend. The database stores data permanently (unlike the server's RAM which wipes on restart).
 
 ---
 
-## The Big Picture — Layers of the Application
+## What We've Built
 
-Think of the application as three separate rooms in a building:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  BROWSER (the user's computer)                              │
-│                                                             │
-│  ┌─────────────────────┐                                    │
-│  │   FRONTEND (React)  │  ← What the user sees and clicks  │
-│  │   Port: 5173        │                                    │
-│  └──────────┬──────────┘                                    │
-│             │  HTTP requests (GET, POST, PUT, DELETE)       │
-└─────────────┼───────────────────────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  SERVER (a computer running your backend code)              │
-│                                                             │
-│  ┌─────────────────────┐                                    │
-│  │  BACKEND (Express)  │  ← Business logic, security rules │
-│  │  Port: 3000         │                                    │
-│  └──────────┬──────────┘                                    │
-│             │  SQL queries                                  │
-│  ┌──────────▼──────────┐                                    │
-│  │  DATABASE (Postgres) │  ← Stores all data permanently   │
-│  │  Port: 5432         │                                    │
-│  └─────────────────────┘                                    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Right now we have only built the Backend layer.** The Frontend and Database
-are planned for future phases.
+### Phase 1 — Setup ✅
+Installed VS Code, Git, Node.js, Docker Desktop. Created the GitHub repo with `frontend/` and `backend/` folders. Learned the git `add → commit → push` loop and why `.gitignore` exists (to keep `node_modules/` and `.env` out of GitHub).
 
 ---
 
-## The Project Folder Structure
+### Phase 2 — Backend (Express server) ✅
 
-```
-alphacrm/                        ← root of the entire project
-│
-├── .gitignore                   ← tells Git which files to never track
-├── CLAUDE.md                    ← instructions for the AI assistant
-│
-├── frontend/                    ← (empty — built in a future phase)
-│
-└── backend/                     ← the Express server lives here
-    ├── package.json             ← project config: name, scripts, dependencies
-    ├── .env                     ← secret config values (NEVER committed to Git)
-    ├── .env.example             ← safe template showing what .env should contain
-    ├── node_modules/            ← downloaded libraries (NEVER committed to Git)
-    │
-    └── src/                     ← all source code lives here
-        ├── index.js             ← entry point — starts the server
-        ├── routes/
-        │   └── health.routes.js ← defines what URLs exist
-        └── controllers/
-            └── health.controller.js ← defines what those URLs do
-```
+**What it does:** A running Node.js + Express server with one working endpoint: `GET /api/health → {"status":"ok"}`. This health endpoint exists so Docker and Kubernetes can automatically ping it later to check if the app is alive.
 
----
+**Key files:**
 
-## What Every File Does
+`backend/src/index.js` — the entry point. Node runs this first. It:
+- Loads `.env` with `import 'dotenv/config'` (must be first line)
+- Creates the Express app with `const app = express()`
+- Registers middleware with `app.use()`
+- Mounts the health router under `/api`
+- Starts the server with `app.listen(PORT, callback)`
 
-### `.gitignore` (at the root)
+`backend/src/routes/health.routes.js` — the receptionist. Maps `GET /health` to the `getHealth` function. Keeps URL definitions separate from logic.
 
-This file tells Git: "pretend these files and folders don't exist."
+`backend/src/controllers/health.controller.js` — the worker. Receives `req` (everything the client sent — read from it) and `res` (tools to send a response — write to it). Calls `res.json({ status: 'ok' })` which converts the object to JSON and sends it with HTTP 200.
 
-The two most important rules:
+`backend/.env` — secret config values. **Never committed.** Contains `PORT` and `DATABASE_URL` (which has the database password).
 
-```
-node_modules/
-```
-The `node_modules` folder contains all your downloaded libraries. It can be
-hundreds of megabytes. Anyone who clones your repo runs `npm install` to
-rebuild it themselves — so there is no reason to commit it. Committing it
-would slow down every push and pull, and the folder is not meant to be
-hand-edited.
+`backend/.env.example` — safe template with placeholder values. **Is committed.** Tells teammates what variables they need to set up.
 
-```
-.env
-.env.*
-```
-The `.env` file holds secrets (passwords, API keys, ports). If you commit it
-to GitHub, those secrets are permanently public — even if you delete the commit
-later, bots scan GitHub in real time and harvest credentials.
+`backend/package.json` — project passport. Lists dependencies, devDependencies, and scripts (`npm start` for production, `npm run dev` for development with auto-restart via nodemon). `"type":"module"` enables modern `import` syntax.
 
-```
-!.env.example
-```
-The `!` means "except this one." `.env.example` is a safe template with fake
-placeholder values that shows teammates what variables they need to configure.
-It is committed because it contains no real secrets.
+**Key concepts:**
+
+**Middleware** — code that runs on every request before it reaches the endpoint, in order. Like airport checkpoints.
+- `cors()` — tells browsers to allow requests from the frontend (a different port). Without it, the browser blocks the request.
+- `express.json()` — parses the request body from raw text into `req.body` as a JavaScript object.
+
+**Routes vs Controllers** — routes answer "what URLs exist and who handles them." Controllers answer "what do we actually do." Kept separate so each file has one job.
+
+**Environment variables** — config values stored outside code. Read via `process.env.KEY`. Never hardcode secrets in code — if pushed to GitHub, bots harvest them within seconds.
 
 ---
 
-### `backend/package.json` — the project's passport
+### Phase 3 — Database (PostgreSQL + Prisma) ✅
 
-```json
-{
-  "name": "backend",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.14"
-  }
-}
+**What it does:** A PostgreSQL database running in a Docker container, with three tables (User, Contact, Deal) created via Prisma migrations and populated with sample seed data.
+
+**Key files:**
+
+`backend/prisma/schema.prisma` — the blueprint. Defines all tables as Prisma `model` blocks, enums (fixed value lists), and relationships. This is the source of truth for the database structure.
+
+`backend/prisma/migrations/` — SQL history. Every time you change the schema and run `npx prisma migrate dev`, Prisma generates the SQL and saves it here as a timestamped file. **Always committed** — this is what makes the database reproducible on any machine.
+
+`backend/prisma/seed.js` — inserts sample data for development (3 users, 3 contacts, 3 deals). Run with `npx prisma db seed`. Not used in production.
+
+`backend/prisma.config.ts` — Prisma settings file. Tells Prisma where the schema is, where migrations live, and reads `DATABASE_URL` from `.env` to connect to the database.
+
+**The three tables and their relationships:**
+
+```
+User
+  id, name, email (unique), passwordHash, role (ADMIN/MANAGER/SALES_REP)
+  createdAt, updatedAt
+
+Contact
+  id, name, email?, phone?, company?   ← ? means optional (can be empty)
+  ownerId → User.id                    ← foreign key: belongs to one User
+  createdAt, updatedAt
+
+Deal
+  id, title, value?, stage (LEAD/QUALIFIED/PROPOSAL/WON/LOST)
+  contactId → Contact.id               ← foreign key: belongs to one Contact
+  ownerId → User.id                    ← foreign key: belongs to one User
+  createdAt, updatedAt
 ```
 
-**`"type": "module"`** — tells Node.js to use modern ES module syntax (`import`/`export`)
-instead of the older CommonJS syntax (`require`/`module.exports`). This is the
-current standard and is what all modern JavaScript uses.
+Relationship diagram:
+```
+User (1) ──── owns many ──── Contact (many)
+  │                               │
+  └──── owns many ──── Deal ──────┘ (each deal belongs to one contact)
+```
 
-**`scripts`** — shortcuts for terminal commands:
-- `npm start` runs `node src/index.js` — starts the server normally (used in production)
-- `npm run dev` runs `nodemon src/index.js` — starts the server in development mode
-  where it automatically restarts whenever you save a file
+**Key concepts:**
 
-**`dependencies`** — libraries needed for the app to run in production:
-- `express` — the web framework. Handles HTTP requests and responses.
-- `dotenv` — reads your `.env` file and makes its values available in code.
-- `cors` — middleware that lets browsers from a different origin (your frontend)
-  make requests to this backend without being blocked.
+**Docker container** — a sealed box containing PostgreSQL and everything it needs. Starts with one command, identical on every machine, disposable. The `-v` volume flag means data survives container restarts (stored on disk, not inside the container).
 
-**`devDependencies`** — libraries only needed during development, not shipped:
-- `nodemon` — watches your files and restarts the server on save. You would never
-  run this in production — in production the code doesn't change.
+**Prisma** — a translator between JavaScript and SQL. You write `prisma.user.findMany()` and Prisma writes the SQL for you. Three parts: Schema (blueprint) → Migrate (builds tables) → Client (queries the database in your code).
+
+**Migration** — a recorded, versioned change to the database structure. Like a Git commit but for your schema. Run `npx prisma migrate dev --name <description>` every time you change `schema.prisma`.
+
+**Foreign key** — a column that stores another table's primary key, creating a link. `ownerId` in Contact stores a User's `id`. PostgreSQL enforces this — you can't save a Contact with an `ownerId` that doesn't exist in User.
+
+**Enum** — a fixed list of allowed values. `Role` can only be ADMIN, MANAGER, or SALES_REP. The database rejects anything else.
+
+**Seed** — fake sample data for development so you have something to look at and test with.
 
 ---
 
-### `backend/.env` — local secret configuration
+## How a Request Flows (full journey)
 
 ```
-PORT=3000
-```
+Browser: GET http://localhost:3000/api/health
 
-An **environment variable** is a value stored outside your code. The convention is
-`KEY=value`. Your code reads these at startup. This means you can change the
-port (or later, the database password) without touching a single line of code —
-and without committing a secret to Git.
+  index.js receives the request
+    → cors() runs: adds "outside callers allowed" header
+    → express.json() runs: checks for body data, parses it (none here)
+    → app.use('/api'): URL starts with /api, hand to healthRouter
 
-This file exists only on your local machine. Every developer on the team has their
-own copy. In production, a secret manager or platform (like AWS Secrets Manager or
-Kubernetes Secrets) provides these values.
+  health.routes.js
+    → router.get('/health'): method=GET, path=/health → match!
+    → calls getHealth
 
----
+  health.controller.js
+    → res.json({ status: 'ok' })
+    → converts to JSON string, sends HTTP 200
 
-### `backend/.env.example` — the safe template
-
-```
-PORT=3000
-```
-
-Identical to `.env` here because `PORT=3000` is not a secret. In later phases
-this file will grow to look like:
-
-```
-PORT=3000
-DATABASE_URL=postgresql://user:password@localhost:5432/alphacrm
-JWT_SECRET=your-secret-key-here
-```
-
-The actual `.env` will have real passwords. This file will always have
-placeholder text — safe to commit.
-
----
-
-### `backend/src/index.js` — the entry point (where everything starts)
-
-```js
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import healthRouter from './routes/health.routes.js';
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-app.use('/api', healthRouter);
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-```
-
-This is the first file Node.js executes when you run `npm run dev`.
-
-**Line 1: `import 'dotenv/config'`**
-Must be the very first line. This triggers dotenv to immediately read your `.env`
-file and load everything into `process.env` — Node's built-in global object for
-environment variables. If this ran any later, code above it that tried to read
-`process.env.PORT` would get `undefined`.
-
-**Line 2-4: imports**
-Brings in the tools this file needs. Note the `.js` extension on the local
-import — required when using ES modules.
-
-**Line 6: `const app = express()`**
-Creates your Express application instance. This is the object you configure and
-attach everything to. Think of it as "instantiating the kitchen."
-
-**Line 7: `const PORT = process.env.PORT || 3000`**
-Reads the port from the environment. The `|| 3000` is a fallback — if `PORT`
-is not set in `.env` for any reason, default to 3000. This is good defensive
-coding.
-
-**Line 9-10: `app.use(...)`** — registering middleware
-`app.use()` registers a piece of middleware that runs on every incoming request,
-in order.
-
-- `cors()` — adds HTTP headers that tell browsers: "requests from other origins
-  (like your React frontend at port 5173) are allowed." Without this, browsers
-  enforce the Same-Origin Policy and block the request automatically.
-- `express.json()` — when a client sends a POST or PUT request with a JSON body,
-  this automatically parses it so you can read it as `req.body` in your
-  controllers. Without it, `req.body` would be `undefined`.
-
-**Line 12: `app.use('/api', healthRouter)`**
-Mounts the health router under the `/api` prefix. Any request whose URL starts
-with `/api` is handed off to `healthRouter`. The router then matches the rest
-of the URL. So `/api/health` matches.
-
-**Line 14-16: `app.listen(...)`**
-Starts the HTTP server. Node begins listening for incoming connections on the
-given port. The callback function runs once when the server is ready — that's
-when you see the startup message in the terminal.
-
----
-
-### `backend/src/routes/health.routes.js` — the URL map
-
-```js
-import { Router } from 'express';
-import { getHealth } from '../controllers/health.controller.js';
-
-const router = Router();
-
-router.get('/health', getHealth);
-
-export default router;
-```
-
-A **Router** in Express is a mini-application that handles a slice of your URLs.
-You define which URL patterns it responds to and which controller function handles
-each one.
-
-`router.get('/health', getHealth)` means:
-- When a **GET** request arrives
-- With the path `/health` (which, with the `/api` prefix from `index.js`, becomes `/api/health`)
-- Call the `getHealth` function
-
-**Why separate routes from controllers?** Single responsibility. The routes file
-answers "what URLs exist." The controller answers "what do we do when that URL is
-hit." As the app grows to dozens of endpoints, this separation keeps the code
-organized and testable.
-
----
-
-### `backend/src/controllers/health.controller.js` — the work
-
-```js
-export function getHealth(req, res) {
-  res.json({ status: 'ok' });
-}
-```
-
-Every controller function receives two arguments that Express provides:
-
-- **`req`** (request) — everything the client sent: URL, headers, body, query
-  string, URL parameters. You read from `req`.
-- **`res`** (response) — methods to send a response back. You write to `res`.
-
-`res.json({ status: 'ok' })` does two things:
-1. Converts the JavaScript object to a JSON string: `{"status":"ok"}`
-2. Sends it back with HTTP status `200 OK` and the header
-   `Content-Type: application/json`
-
-**Why does the health endpoint exist?**
-When you deploy to Docker or Kubernetes later, those platforms automatically ping
-`GET /api/health` every few seconds to ask "is this container still alive and
-working?" If they get back `200 OK`, the container is considered healthy. If it
-fails, Kubernetes automatically restarts the container. It is the most standard
-first endpoint you build in any production backend.
-
----
-
-## How a Request Flows Through the System
-
-Here is what happens, step by step, when you visit
-`http://localhost:3000/api/health` in a browser:
-
-```
-Browser
-  │
-  │  1. Sends HTTP GET request to http://localhost:3000/api/health
-  │
-  ▼
-index.js — app.listen() receives the request
-  │
-  │  2. Request passes through middleware (in order):
-  │     ├── cors()         → adds CORS headers to the response
-  │     └── express.json() → checks if body is JSON, parses it (no body here)
-  │
-  │  3. app.use('/api', healthRouter)
-  │     URL starts with /api → hand off to healthRouter
-  │
-  ▼
-health.routes.js — router.get('/health', getHealth)
-  │
-  │  4. Method is GET, path is /health → match found
-  │     Call getHealth function
-  │
-  ▼
-health.controller.js — getHealth(req, res)
-  │
-  │  5. res.json({ status: 'ok' })
-  │     Converts to JSON string, sets status 200, sends response
-  │
-  ▼
-Browser
-  │
-  │  6. Receives: {"status":"ok"}
-  │     Displays it on screen (or curl prints it in the terminal)
+Browser receives: {"status":"ok"}
 ```
 
 ---
 
-## How the Files Connect to Each Other
+## The DATABASE_URL Explained
 
 ```
-index.js
-  │
-  ├── imports dotenv           → reads .env → PORT=3000 available
-  ├── imports express          → creates the app
-  ├── imports cors             → used as middleware
-  └── imports health.routes.js
-              │
-              └── imports health.controller.js
-                          │
-                          └── exports getHealth function
+postgresql://alphacrm:devpassword@localhost:5432/alphacrm_dev?schema=public
+     ↑           ↑         ↑          ↑          ↑              ↑
+  database     username  password   host        port         database name
+   type                           (this machine)
 ```
 
-The dependency direction always flows inward:
-- `index.js` knows about routes
-- routes know about controllers
-- controllers know about nothing (they only use `req` and `res` that Express provides)
-
-This one-way dependency chain means you can understand and test each layer
-in isolation.
+Every piece matches what was set in the `docker run` command. Lives in `.env` because it contains the real password. `.env.example` has `USER:PASSWORD` placeholders instead.
 
 ---
 
-## What We Have Built — Phase Summary
+## How to Check Things
 
-### Phase 1 — Foundations
-- Installed VS Code, Git, Node.js, Docker Desktop
-- Created a GitHub account and cloned the `alphacrm` repo
-- Learned: Git vs GitHub, the add → commit → push loop, why `.gitignore` exists
-
-### Phase 2 — Backend Foundation (current)
-- Initialized a Node.js project with `npm init -y`
-- Configured ES modules with `"type": "module"`
-- Installed Express, dotenv, cors, nodemon
-- Created the route → controller architecture
-- Built the `GET /api/health` endpoint
-- Learned: client-server model, REST API, routes, controllers, middleware,
-  environment variables
+| What | Command |
+|------|---------|
+| Run the backend | `npm run dev` (inside `backend/`) |
+| Is Docker container running? | `docker ps` |
+| Start/stop the database | `docker start alphacrm-postgres` / `docker stop alphacrm-postgres` |
+| Browse database visually | `npx prisma studio` → http://localhost:5555 |
+| Query database with SQL | `docker exec -it alphacrm-postgres psql -U alphacrm -d alphacrm_dev` |
+| Regenerate Prisma client | `npx prisma generate` |
+| Security scan | `npm audit` |
+| Test health endpoint | `curl http://localhost:3000/api/health` |
 
 ---
 
-## What Comes Next
+## What's Next
 
-### Phase 3 — Database (PostgreSQL + Prisma)
-- Install and run PostgreSQL locally (in Docker)
-- Install Prisma (the ORM — the layer that translates between your JavaScript
-  code and SQL)
-- Define data models: User, Contact, Deal
-- Add `DATABASE_URL` to `.env`
-
-### Phase 4 — Authentication
-- POST /api/auth/register — create a new user account
-- POST /api/auth/login — verify password, return a JWT token
-- Middleware to protect routes: check the JWT on every authenticated request
-- Role-based access control: Admin, Manager, Sales Rep
-
-### Phase 5 — Frontend
-- React + Vite setup
-- Tailwind CSS for styling
-- Login page, contact list, deal pipeline (Kanban board)
-- Fetch data from the backend API
-
-### Phase 6 — DevOps (Docker, CI/CD, Kubernetes, AWS)
-- Dockerfile to containerize the backend
-- Docker Compose to run backend + database together
-- GitHub Actions to automatically test and build on every push
-- Terraform to provision AWS infrastructure
-- Kubernetes on EKS to run the containers in production
-- Prometheus + Grafana for monitoring
+| Phase | What |
+|-------|------|
+| 4 | Auth — `POST /api/auth/register`, `POST /api/auth/login`, JWT tokens, route protection, role-based access |
+| 5 | Frontend — React + Vite + Tailwind, login page, contacts list, Kanban deal board |
+| 6 | DevOps — Docker Compose, GitHub Actions CI/CD, Terraform, Kubernetes on AWS EKS, Prometheus + Grafana |
 
 ---
 
-## Glossary — Plain English Definitions
+## Glossary
 
 | Term | Plain English |
-|------|---------------|
-| **API** | A set of URLs your backend exposes so other software can talk to it |
-| **REST** | A convention for designing those URLs using HTTP verbs |
-| **Endpoint** | One specific URL + HTTP verb combination (e.g. GET /api/health) |
-| **Middleware** | Code that runs on every request before it reaches a controller |
-| **Route** | A mapping from a URL pattern to a controller function |
-| **Controller** | The function that handles a specific request and sends a response |
-| **`req`** | The request object — everything the client sent |
-| **`res`** | The response object — methods to send data back |
-| **Environment variable** | A config value stored outside your code |
-| **`.env`** | A file that holds environment variables locally (never committed) |
-| **`process.env`** | Node's built-in object where environment variables are stored |
-| **Port** | A numbered "door" on a computer that network connections come through |
-| **CORS** | A browser security rule; the CORS middleware lifts the restriction |
-| **JSON** | A text format for data: `{"key": "value"}` |
-| **npm** | Node's package manager — downloads and manages libraries |
-| **`node_modules`** | The folder where npm puts downloaded libraries |
-| **`package.json`** | The file that describes your project and lists its dependencies |
-| **nodemon** | A dev tool that restarts your server when you save a file |
-| **Health endpoint** | A URL that returns OK — used by Docker/Kubernetes to check if the app is alive |
-| **ORM** | A library that lets you write JavaScript instead of SQL to talk to a database |
-| **JWT** | A signed token that proves a user is logged in |
-| **Docker** | A tool that packages your app + its dependencies into a portable container |
-| **Kubernetes** | A platform that runs, scales, and manages Docker containers in production |
+|------|--------------|
+| API | The menu of things the backend can do |
+| REST | Convention: GET=read, POST=create, PUT=update, DELETE=remove |
+| Endpoint | One specific URL + HTTP method (e.g. GET /api/health) |
+| Middleware | Code that runs on every request before the endpoint |
+| Route | Maps a URL to a controller function |
+| Controller | The function that handles a request and sends a response |
+| `req` | Everything the client sent — you read from it |
+| `res` | Tools to send a response — you write to it |
+| `.env` | File holding secret config values, never committed |
+| Port | A numbered "door" on a computer for network connections |
+| Docker container | A sealed, portable box running a program |
+| Docker volume | Persistent storage that survives container restarts |
+| ORM | Library that translates JavaScript into SQL (Prisma is our ORM) |
+| Schema | The design of your database tables |
+| Migration | A recorded change to the database structure |
+| Primary key | The unique ID for each row in a table |
+| Foreign key | A column pointing to another table's primary key |
+| Enum | A fixed list of allowed values for a column |
+| Seed | Sample data inserted for development |
+| JWT | A signed token that proves a user is logged in (Phase 4) |
+| CORS | Browser security rule; cors() middleware lifts the restriction |
