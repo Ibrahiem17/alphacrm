@@ -71,6 +71,6 @@ Then:
 
 ## Current Phase
 
-**Phase: 1** — Project scaffolding and local dev environment setup.
+**Phase: 3** — Database (PostgreSQL + Prisma).
 
 > Update this line at the start of each new phase.

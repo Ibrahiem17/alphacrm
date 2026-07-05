@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  SALES_REP
+}
+
+enum Stage {
+  LEAD
+  QUALIFIED
+  PROPOSAL
+  WON
+  LOST
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(SALES_REP)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  contacts     Contact[]
+  deals        Deal[]
+}
+
+model Contact {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String?
+  phone     String?
+  company   String?
+  ownerId   Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner     User     @relation(fields: [ownerId], references: [id])
+  deals     Deal[]
+}
+
+model Deal {
+  id        Int      @id @default(autoincrement())
+  title     String
+  value     Float?
+  stage     Stage    @default(LEAD)
+  contactId Int
+  ownerId   Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contact   Contact  @relation(fields: [contactId], references: [id])
+  owner     User     @relation(fields: [ownerId], references: [id])
+}
